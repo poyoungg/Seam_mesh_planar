@@ -1,0 +1,320 @@
+This is a standard plane mesh OFF file(standard_plane_mesh.off):
+OFF
+36 50 0
+0 0 0 
+0 1 0 
+0 2 0 
+0 3 0 
+0 4 0 
+0 5 0 
+1 0 0 
+1 1 0 
+1 2 0 
+1 3 0 
+1 4 0 
+1 5 0 
+2 0 0 
+2 1 0 
+2 2 0 
+2 3 0 
+2 4 0 
+2 5 0 
+3 0 0 
+3 1 0 
+3 2 0 
+3 3 0 
+3 4 0 
+3 5 0 
+4 0 0 
+4 1 0 
+4 2 0 
+4 3 0 
+4 4 0 
+4 5 0 
+5 0 0 
+5 1 0 
+5 2 0 
+5 3 0 
+5 4 0 
+5 5 0 
+3 18 25 19
+3 25 31 32
+3 9 15 16
+3 28 21 27
+3 7 8 1
+3 15 14 21
+3 29 22 28
+3 15 8 14
+3 27 20 26
+3 29 28 35
+3 7 6 13
+3 31 24 30
+3 19 20 13
+3 32 26 25
+3 33 34 27
+3 31 25 24
+3 26 20 19
+3 25 18 24
+3 19 12 18
+3 13 6 12
+3 7 0 6
+3 8 2 1
+3 8 9 2
+3 0 7 1
+3 13 14 7
+3 7 14 8
+3 13 20 14
+3 12 19 13
+3 25 26 19
+3 8 15 9
+3 14 20 21
+3 2 9 3
+3 15 22 16
+3 3 9 10
+3 16 22 23
+3 4 10 11
+3 4 3 10
+3 5 4 11
+3 10 16 17
+3 10 9 16
+3 11 10 17
+3 17 16 23
+3 27 21 20
+3 22 15 21
+3 32 33 26
+3 28 22 21
+3 26 33 27
+3 34 28 27
+3 34 35 28
+3 23 22 29
+
+and this is seam selection file,only containing the seam edges indices(standard_plane_mesh.selections.txt):
+
+
+7 14 21 28 35
+
+I run Surface_mesh_parameterization/seam_Polyhedron_3.cpp to planar parameterization of this standrd plane mesh,
+and i got the result.off,but i found the files result.off and standard_plane_mesh.off their face parameter is different,like this:
+
+stand_plane_mesh.off                 result.off  
+
+  3 18 25 19                          3 33 30 28
+  3 25 31 32                          3 30 33 26
+  3 9 15 16                           3 33 25 26
+    ...                                   ...
+  3 23 22 29                          3 30 26 21
+
+So i want to the parameters in result.off to be in the order corresponding to standard_plane_mesh.off.
+I followed the method of the linked answer(https://github.com/CGAL/cgal/issues/2994)
+the program I wrote is as follows:
+#include <list>
+#include <string>
+#include <utility>
+#include <vector>
+#include<iostream>
+#include <fstream>
+#include <pcl/common/centroid.h>
+#include <CGAL/Simple_cartesian.h>
+#include <CGAL/Polyhedron_3.h>
+#include <CGAL/boost/graph/Seam_mesh.h>
+#include <CGAL/Surface_mesh_parameterization/IO/File_off.h>
+#include <CGAL/Surface_mesh_parameterization/parameterize.h>
+#include <CGAL/Unique_hash_map.h>
+#include <CGAL/Polygon_mesh_processing/measure.h>
+#include <iostream>
+#include <fstream>
+
+//#include<pcl/io/io.h>
+//#include<pcl/io/obj_io.h>
+//#include<pcl/io/pcd_io.h>
+//#include<pcl/io/ply_io.h>
+//#include <pcl/kdtree/kdtree_flann.h>
+//#include<pcl/PolygonMesh.h>
+//#include<pcl/common/transforms.h>
+//#include<pcl/visualization/pcl_visualizer.h>
+
+using namespace pcl;
+using namespace std;
+
+typedef CGAL::Simple_cartesian<double>      Kernel;
+typedef Kernel::Point_2                     Point_2;
+typedef Kernel::Point_3                     Point_3;
+typedef CGAL::Polyhedron_3<Kernel>          PolyMesh;
+typedef PolyMesh::Facet_iterator            Facet_iterator;
+typedef boost::graph_traits<PolyMesh>::edge_descriptor SM_edge_descriptor;
+typedef boost::graph_traits<PolyMesh>::halfedge_descriptor SM_halfedge_descriptor;
+typedef boost::graph_traits<PolyMesh>::vertex_descriptor SM_vertex_descriptor;
+typedef CGAL::Unique_hash_map<SM_halfedge_descriptor, Point_2> UV_uhm;
+typedef CGAL::Unique_hash_map<SM_edge_descriptor, bool> Seam_edge_uhm;
+typedef CGAL::Unique_hash_map<SM_vertex_descriptor, bool> Seam_vertex_uhm;
+typedef boost::associative_property_map<UV_uhm> UV_pmap;
+typedef boost::associative_property_map<Seam_edge_uhm> Seam_edge_pmap;
+typedef boost::associative_property_map<Seam_vertex_uhm> Seam_vertex_pmap;
+typedef CGAL::Seam_mesh<PolyMesh, Seam_edge_pmap, Seam_vertex_pmap> Mesh;
+typedef boost::graph_traits<Mesh>::vertex_descriptor vertex_descriptor;
+typedef boost::graph_traits<Mesh>::halfedge_descriptor halfedge_descriptor;
+typedef boost::graph_traits<Mesh>::face_descriptor face_descriptor;
+typedef PolyMesh::Halfedge_around_facet_circulator Halfedge_facet_circulator;
+namespace SMP = CGAL::Surface_mesh_parameterization;
+
+//template<class Type>
+//Type stringToNum(const string& str)
+//
+//{
+//	istringstream iss(str);
+//
+//	Type num; iss >> num;
+//
+//	return num;
+//
+//}
+//
+//vector<string> split(const string &str, const string &pattern)
+//{
+//	char * strc = new char[strlen(str.c_str()) + 1];
+//	strcpy(strc, str.c_str());
+//	vector<string> resultVec;
+//	char* tmpStr = strtok(strc, pattern.c_str());
+//	while (tmpStr != NULL)
+//	{
+//		resultVec.push_back(string(tmpStr));
+//		tmpStr = strtok(NULL, pattern.c_str());
+//	}
+//	delete[] strc;
+//	return resultVec;
+//}
+//
+//void readFromTxt(const string fileName, pcl::PointCloud<pcl::PointXYZ>&uv_pointcloud)
+//
+//{
+//	ifstream myfile(fileName);
+//	if (!myfile.is_open())
+//
+//	{
+//		cout << "open file error" << endl; exit(0);
+//
+//	}
+//	string temp;
+//	while (getline(myfile, temp))
+//	{
+//		pcl::PointXYZ pp;
+//		vector<string> strs = split(temp, " ");
+//		pp.x = stringToNum<float>(strs.at(0));
+//		pp.y = stringToNum<float>(strs.at(1));
+//		pp.z = stringToNum<float>(strs.at(2));
+//		uv_pointcloud.push_back(pp);
+//	}
+//	myfile.close();
+//}
+//
+//void get_UV_coord(std::ofstream &out, PolyMesh & sm, UV_pmap uv_map) {
+//	boost::graph_traits<PolyMesh>::vertex_iterator vit, vend;
+//	boost::tie(vit, vend) = vertices(sm);
+//	while (vit != vend)
+//	{
+//		SM_vertex_descriptor vd = *vit++;
+//		SM_halfedge_descriptor vdd = vd->halfedge();
+//		out << get(uv_map, vdd) << " 0\n";
+//	}
+//}
+
+bool uvmap_off(std::ofstream &out, PolyMesh & sm, UV_pmap uv_map)
+{
+	std::size_t vertices_counter = 0, faces_counter = 0;
+	out << "OFF\n";
+	out << sm.size_of_vertices() << " " << sm.size_of_facets() << " 0\n";
+	boost::graph_traits<PolyMesh>::vertex_iterator vit, vend;
+	boost::tie(vit, vend) = vertices(sm);
+	while (vit != vend)
+	{
+		SM_vertex_descriptor vd = *vit++;
+		SM_halfedge_descriptor vdd = vd->halfedge();
+		out << get(uv_map, vdd) << " 0\n";
+	}
+	for (Facet_iterator i = sm.facets_begin(); i != sm.facets_end(); ++i) {
+		Halfedge_facet_circulator j = i->facet_begin();
+		CGAL_assertion(CGAL::circulator_size(j) >= 3);
+		out << CGAL::circulator_size(j);
+		do {
+			out << ' ' << std::distance(sm.vertices_begin(), j->vertex());
+		} while (++j != i->facet_begin());
+		out << std::endl;
+	}
+	if (vertices_counter != sm.size_of_vertices())
+		return 0;
+	else
+		return 1;
+}
+
+
+
+
+int main()
+{
+	//load mesh data
+	cout << "loading mesh data....." << endl;
+	ofstream(off_file);
+	ifstream in_mesh("standard_plane_mesh.off");
+	ifstream seam_line_filename("standard_plane_mesh.selections.txt");
+	PolyMesh sm;
+	in_mesh >> sm;
+	Seam_edge_uhm seam_edge_uhm(false);
+	Seam_edge_pmap seam_edge_pm(seam_edge_uhm);
+	Seam_vertex_uhm seam_vertex_uhm(false);
+	Seam_vertex_pmap seam_vertex_pm(seam_vertex_uhm);
+	Mesh mesh(sm, seam_edge_pm, seam_vertex_pm);
+	SM_halfedge_descriptor smhd = mesh.add_seams(seam_line_filename);
+	UV_uhm uv_uhm;
+	UV_pmap uv_pm(uv_uhm);
+	halfedge_descriptor bhd = CGAL::Polygon_mesh_processing::longest_border(mesh).first;
+	SMP::parameterize(mesh, bhd, uv_pm);
+
+	
+	//std::ofstream out("standard_mesh_plane_UV.off");
+	//SMP::IO::output_uvmap_to_off(mesh, bhd, uv_pm, out);
+
+	std::ofstream out("standard_plane_mesh_UV.off");
+	uvmap_off(out, sm, uv_pm);
+	out.close();
+
+	//using the checkerboard map 
+	/*std::ofstream UV_coord("UV_coord.txt");
+	get_UV_coord(UV_coord, sm, uv_pm);
+	UV_coord.close();
+	pcl::PointCloud<pcl::PointXYZ> uv_pointcloud;
+	readFromTxt("UV_coord.txt", uv_pointcloud);
+	pcl::PointCloud<pcl::PointXYZ>::Ptr mesh_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+	pcl::PolygonMesh mesh_A;
+	pcl::io::loadPLYFile("standard_plane_mesh.ply", mesh_A);
+	pcl::fromPCLPointCloud2(mesh_A.cloud, *mesh_cloud);
+	ofstream(sss);
+	sss.open("stand_plane_mesh_with_texcoord.ply");
+	sss << "ply" << endl;
+	sss << "format ascii 1.0" << endl;
+	sss << "comment CUIT" << endl;
+	sss << "comment TextureFile check.png" << endl;
+	sss << "element vertex " << mesh_cloud->size() << endl;
+	sss << "property float x" << endl;
+	sss << "property float y" << endl;
+	sss << "property float z" << endl;
+	sss << "element face " << mesh_A.polygons.size() << endl;
+	sss << "property list uchar int vertex_indices" << endl;
+	sss << "property list uchar float texcoord" << endl;
+	sss << "end_header" << endl;
+	for (size_t i = 0; i < mesh_cloud->size(); i++)
+	{
+		sss << mesh_cloud->points[i].x << " " << mesh_cloud->points[i].y << " " << mesh_cloud->points[i].z << endl;
+	}
+	for (size_t j = 0; j < mesh_A.polygons.size(); j++)
+	{
+		int A = mesh_A.polygons.at(j).vertices[0];
+		int B = mesh_A.polygons.at(j).vertices[1];
+		int C = mesh_A.polygons.at(j).vertices[2];
+		sss << "3" << " " << A << " " << B << " " << C << " " << "6" << " " << uv_pointcloud.points[A].x << " " << uv_pointcloud.points[A].y << " " << uv_pointcloud.points[B].x << " " << uv_pointcloud.points[B].y << " " << uv_pointcloud.points[C].x << " " << uv_pointcloud.points[C].y << endl;
+	}
+	sss.close();*/
+	system("pause");
+	return 0;
+}
+
+but the result i got is also incorrect,How should I modify my program? Thanks for everyone's reply!
